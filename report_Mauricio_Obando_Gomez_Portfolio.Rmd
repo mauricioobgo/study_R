@@ -1,0 +1,979 @@
+---
+title: "Portfolio Analysis"
+author: "Mauricio Obando Gómez"
+date: "9/6/2020"
+output: 
+  pdf_document:
+    toc: true
+bibliography: citations.bib
+---
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("~/Mauricito_carpeta/Gestión_Portafolios/PROYECTO_FINAL/reportgenerator_Mauricio_obando")
+library(knitr )
+library(quantmod)
+library(PortfolioAnalytics)
+library(PerformanceAnalytics)
+library(fBasics)
+source("functions_port_mg.R")
+library(TTR)
+#Paquete de manejo de dataframes
+library(dplyr)
+#paquete de manejo de time series
+library(imputeTS)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(summarytools)
+library(knitr)
+library(nortest)
+library(hrbrthemes)
+library(viridis)
+library(gtable)
+library(gridExtra)
+library(imputeTS)
+library(xts)
+library(reshape)
+library(plotly)
+library(ggplot2)
+library(showtext)
+```
+
+# Análisis de Portafolio a Partir de Acciones US Market
+## Descripción análisis :
+
+Las acciones seleccionadas para este análisis fueron tomados los indíces de  Russell 2000, NASDAQ, S&P 500, DoW Jones y una comparación con un Treasury de 10 y.
+
+El análisis de indices se realiza con la finalidad de hacer una revisión del mejor comportamiento  del binomio riesgo, rentabilidad  y realizar una selección más objetiva de los activos a invertir bajo un nivel de riesgo moderado a uno de alto riesgo.
+
+Acontinuación se realizará un breve análisis de cada indice escogido y de las principales razones de escogencia, así como algunos resultados descriptivos.
+
+Para este análisis se tomó el período comprendido entre 2015-01-01 hasta 2020-05-15 y la información proviene de Yahoo Finance mediante el paquete quantmod.[@]
+
+# Análisis Descriptivo Indices
+
+### Rusell 2000 (Ticker: ^RUT)
+Es el indice que mide el desempeño de aproximadamente 2000 compañías pequeñas del indice Russel 3000, que esta hecho de las 3000 acciones con mayor capitalización de Estados Unidos, es un indice ponderado.
+
+### NASDAQ (Ticker: ^IXIC)
+Es el indice que mide el desempeño del mercado global electrónico, son alrededor de 3000 acciones de las compañías que representan el mayor crecimiento tecnologico en terminos de computación y electrónicos.
+
+### S&P 500 (Ticker: ^GSPC)
+Es el indice que tiene en su composición las 500 compañías con mayor capitalización ponderada en el mercado de Estados Unidos.
+
+### Dow Jones 30 (Ticker: ^DJI)
+Es el indice que en su composición tiene las 30 compañías que en promedio tienen mayor capitalización en el mercador de Estados Unidos.
+
+
+```{r , include=FALSE}
+symbols_indexes=c("^GSPC","^RUT","^IXIC","^DJI","^TNX")
+getSymbols(symbols_indexes, from ="2016-01-01", to = "2020-05-15", periodicity="weekly")
+symbols_indexes=c("GSPC","RUT","IXIC","DJI","TNX")
+data_frame_indexes=list(GSPC,RUT,IXIC,DJI,TNX)
+data_frame_indexes=data.frame(data_frame_indexes)
+data_frame_indexes=na.omit(data_frame_indexes)
+rm(list = c(symbols_indexes))
+dataFrameGeneral_prices_indexes=data_frame_indexes %>% select(contains("Close"))
+dataFrame_returns_indexes=data.frame(apply(dataFrameGeneral_prices_indexes,2,log_return_calc))
+dataFrame_plots_comparison_index=data.frame(returns=c(dataFrame_returns_indexes$GSPC.Close,dataFrame_returns_indexes$RUT.Close,dataFrame_returns_indexes$IXIC.Close,dataFrame_returns_indexes$DJI.Close,dataFrame_returns_indexes$TNX.Close),labels=c(rep(symbols_indexes[1],227),rep(symbols_indexes[2],227),rep(symbols_indexes[3],227),rep(symbols_indexes[4],227),rep(symbols_indexes[4],227)))
+```
+```{r,, echo=FALSE}
+knitr::kable(descr(dataFrame_returns_indexes))
+```
+
+Como se observa en la tabla descriptiva presenta skwennes negativa indicando, un sesgo positivo en la data recolectada de los indices, y mostrando IXIC o NASDAQ como el menos sesgado entre los indices de la muestra. Adicionalmente la Kurtosis menor lo que indica menos cola es decir un menor riesgo de pérdida en relación a los otros índices.
+```{r, echo=FALSE}
+dataFrame_plots_comparison_index %>%
+ ggplot( aes(x=returns, fill=labels)) +
+    geom_histogram( color="#e9ecef", alpha=0.6, position = 'identity') +
+    scale_fill_manual(values=c("#CCCC00", "#00008B","#8b0000","#006400","#00c097"))+theme(plot.margin = margin(0,0,0,0))
+```
+centrandonos en el análisis de IXIC(NASDAQ), este tiene poca representación en área en relación a los retornos de los otros ínidices y incluyendo las colas del histograma.
+
+## Construcción de Portafolio de mínima varianza para decisión de activos
+
+### Matriz de Covarianzas Spearman de  índices
+
+```{r, echo=FALSE}
+covariance_matrix_Spearman_indexes=cov(dataFrame_returns_indexes, y = NULL, use = "everything",
+                                method = c("spearman"))
+knitr::kable(covariance_matrix_Spearman_indexes)
+```
+
+Esta es la matriz que se tomará para la optimización y contrucción de portafolio de mínima varianza para decidir por un índice.
+
+### Matriz de Correlación  índices
+
+```{r, echo=FALSE}
+correlaton_matrix_Spearman_indexes=cor(dataFrame_returns_indexes, y = NULL, use = "everything",
+                                method = c("spearman"))
+knitr::kable(correlaton_matrix_Spearman_indexes)
+```
+
+Se Observa como entre todos los índices es el que menor correlación con el activo libre de riesgo, por lo que confirma la selección de utilización de NASDAQ como índice de selección de activos para generar una correlación menor en relación al movimiento de precios del activo libre de riesgos.
+
+## Generación de Potafolio de Minima Varianza de índices
+
+```{r, echo=FALSE}
+port_index_mean_returns=meanCalculation(dataFrame_returns_indexes)
+portfolio_min_variance_indexes=globalMin.portfolio(t(port_index_mean_returns),covariance_matrix_Spearman_indexes,F)
+portGeneration_indexes=data.frame(weights_index_percentage=round(portfolio_min_variance_indexes$weights*100,3),row.names =symbols_indexes)
+knitr::kable(portGeneration_indexes)
+
+```
+
+Como suponiendo una inversión sobre los índices me indica un 28% sobre IXIC (NADAQ) sin tener encuenta el activo libre de riesgo tomado para este caso TNX(treasury a 10 y), por los que se examinara la composición del indice NASDAQ y se seleccionaran aleatoriamente 22 compañías para la realización de este reporte.
+
+## Acciones seleccionadas
+
+Se seleccionan con base en el índice NASDAQ(Ticker:IXIC) las acciones de las siguientes compañías:
+
+\begin{enumerate}
+  \item Facebook, Inc (Ticker: FB)
+  \item Advanced Micro Devices, Inc. (Ticker: AMD)
+  \item Cisco Systems, Inc (Ticker: AMD)
+  \item Aon Plc (Ticker:AON)
+  \item American Tower Corporation (REIT) (Ticker:AMT)
+  \item Pfizer Inc. (Ticker:PFE)
+  \item Merck and Co., Inc. (Ticker:MRK)
+  \item Exxon Mobil Corporation (Ticker:XOM)
+  \item Lam Research Corporation (Ticker:LRCX)
+  \item NVIDIA Corporation (Ticker:NVDA)
+  \item Adobe Inc. (Ticker:ADBE)
+  \item Oracle Corporation (Ticker:ORCL)
+  \item ATandT Inc. (Ticker:T)
+  \item JPMorgan Chase and Co.(Ticker:JPM)
+  \item Marsh and McLennan Companies, Inc.(Ticker:MMC)
+  \item BlackRock, Inc. (Ticker:BLK)
+  \item U.S. Bancorp (Ticker:USB)
+  \item Citigroup Inc. (Ticker:C)
+  \item Starbucks Corporation (Ticker:SBUX)
+  \item Verizon Communications Inc. (Ticker:VZ)
+  \item Vroom, Inc. (Ticker:VRM)
+  \item United States Oil Fund, LP (USO)  
+  \item iShares 20+ Year Treasury Bond ETF (Ticker:TLT)
+\end{enumerate}
+
+Se toma el Activo Ishares 20 como inversión libre de riesgo, este se compone de Trasuries a 20 años, el cual es largo plazo y tiene retornos que han tenido saltos grandes durante los últimos meses debido a la pandemia.
+
+Los datos aqui tomados también comprende el período entre 2015-01-01 hasta 2020-05-15 y la información proviene de Yahoo Finance mediante el paquete quantmod.
+
+Por otra parte se tiene que tener en cuenta que el ETF seleccionado presenta una alta volatilidad durante el primer semestre de 2020 debido a la constante expectativa de mercado con las tasas de interés, por lo que los precios y su volatilidad pueden estar sujetos al momento coyuntural de la pandemia 2020.
+
+
+## Análisis descriptivo de Acciones
+
+Se realiza Análisis en grupos de 4 Compañías debido a que los activos seleccionados son 22 se deben observar de forma separada para un mejor visualización de los resultados.
+
+```{r, include=FALSE}
+
+nominal_investment=10000000
+#symbols_vector=c( "HBIO" , "AAON" ,  "VBND" , "FOSL"  , "ADBE" , "COKE" , "CSCO" ,"CXDC" , "CATC" , "GOOGL" , "EBAY" , "MDLZ", "SNY","RMCF","MELI","PEP","MA","ABBV" ,"AXP","WFC")
+symbols_vector=c("FB","AMD","CSCO","AON","AMT","PFE","MRK","XOM","LRCX","NVDA","ADBE","ORCL","T","JPM","MMC","BLK","USB","C","SBUX","VZ","USO","TLT")
+#TLT ETF Treasuries 20 years
+#United States Oil Fund, LP USO
+(getSymbols(symbols_vector, from ="2015-01-01", to = "2020-05-15",periodicity = "weekly"))
+#cambio de variables que tienen nombres relativos 
+atandt=`T`
+City=`C`
+dataFrameGeneral=list(FB,AMD,CSCO,AON,AMT,PFE,MRK,XOM,LRCX,NVDA,ADBE,ORCL,atandt,JPM,MMC,BLK,USB,City,SBUX,VZ,TLT,USO)
+
+dataFrameGeneral=data.frame(dataFrameGeneral)
+dataFrameGeneral=na.omit(dataFrameGeneral)
+#Eliminación de Variables
+rm(list =c(symbols_vector,"atandt","City"))
+
+#Selección de Precios con bajo la misma característica
+dataFrameGeneral_prices_Close=dataFrameGeneral %>% select(contains("Close"))
+#Eliminación de DataFrame General por performance en procesamiento posterior
+rm(dataFrameGeneral)
+(getSymbols("^IXIC", from ="2015-01-01", to = "2020-05-15",periodicity = "weekly"))
+benchmark_values=`IXIC`
+rm(IXIC)
+benchmark_values=data.frame(benchmark_values$IXIC.Close)
+benchmark_values=na.omit(benchmark_values)
+returns_benchmark=data.frame(apply(benchmark_values,2,log_return_calc))
+mean_return_bench_mark=mean(returns_benchmark[[1]])
+sd_return_bench_mark=sd(returns_benchmark[[1]])
+values_num_returns_benchmark=tail(returns_benchmark,1)
+
+# Comienzo de construcción de Portafolio #######
+#calculo de retorno ln del portafolio
+
+```
+
+
+
+```{r, include=FALSE}
+port_returns=data.frame(apply(dataFrameGeneral_prices_Close,2,log_return_calc))
+sd_port_returns=port_returns%>%summarise_all(sd)
+mean_returns=meanCalculation(port_returns)
+port_date_time=rownames(port_returns)
+port_date_time=as.Date(port_date_time,"%Y-%m-%d")
+betas_portfolio=beta_calculation(round(sd_port_returns,4),round(sd_return_bench_mark,4),
+                                 cor(port_returns,returns_benchmark),symbols_vector)
+
+
+breaks <- pretty(range(port_returns$FB.Close), n = nclass.FD(port_returns$FB.Close), min.n = 1)
+bwidth <- breaks[2]-breaks[1]
+dataFrame_plots_port_returns=data.frame(returns=c(port_returns$FB.Close,port_returns$AMD.Close,port_returns$CSCO.Close,port_returns$AON.Close),labels=c(rep(symbols_vector[1],280),rep(symbols_vector[2],280),rep(symbols_vector[3],280),rep(symbols_vector[4],280)),dates=c(rep(as.Date(port_date_time),4)))
+
+p1=ggplot(dataFrame_plots_port_returns,mapping=aes(x=returns, fill=labels))+ 
+             geom_histogram(binwidth=bwidth,fill="steelblue",colour="black")+xlab("Returns")+theme(plot.margin=margin(0,0,0,0))+facet_grid(labels~.)
+chart_series_n1=ggplot(dataFrame_plots_port_returns,mapping=aes(x=dates,y=returns, fill=labels))+ geom_line()+theme(plot.margin=margin(0,0,0,0))+xlab("Time")+facet_grid(labels~.)
+
+
+
+
+dataFrame_plots_port_returns=data.frame(returns=c(port_returns$AMT.Close,port_returns$PFE.Close,port_returns$MRK.Close,port_returns$XOM.Close),labels=c(rep(symbols_vector[5],280),rep(symbols_vector[6],280),rep(symbols_vector[7],280),rep(symbols_vector[8],280)),dates=c(rep(as.Date(port_date_time),4)))
+
+
+p2=ggplot(dataFrame_plots_port_returns,mapping=aes(x=returns, fill=labels))+ 
+             geom_histogram(binwidth=bwidth,fill="darkgreen",colour="black")+
+             xlab("Returns")+theme(plot.margin=margin(0,0,0,0))+facet_grid(labels~.)
+
+              
+chart_series_n2=ggplot(dataFrame_plots_port_returns,mapping=aes(x=dates,y=returns, fill=labels))+ geom_line()+theme(plot.margin=margin(0,0,0,0))+
+             xlab("Time")+facet_grid(labels~.)
+
+
+
+dataFrame_plots_port_returns=data.frame(returns=c(port_returns$LRCX.Close,port_returns$NVDA.Close,port_returns$ADBE.Close,port_returns$ORCL.Close),labels=c(rep(symbols_vector[9],280),rep(symbols_vector[10],280),rep(symbols_vector[11],280),rep(symbols_vector[12],280)),dates=c(rep(as.Date(port_date_time),4)))
+
+
+p3=ggplot(dataFrame_plots_port_returns,mapping=aes(x=returns, fill=labels))+ 
+             geom_histogram(binwidth=bwidth,fill="darkgreen",colour="black")+
+             xlab("Returns")+theme(plot.margin=margin(0,0,0,0))+facet_grid(labels~.)
+
+              
+chart_series_n3=ggplot(dataFrame_plots_port_returns,mapping=aes(x=dates,y=returns, fill=labels))+ geom_line()+theme(plot.margin=margin(0,0,0,0))+
+             xlab("Time")+facet_grid(labels~.)
+
+
+dataFrame_plots_port_returns=data.frame(returns=c(port_returns$T.Close,port_returns$JPM.Close,port_returns$MMC.Close,port_returns$BLK.Close),labels=c(rep(symbols_vector[13],280),rep(symbols_vector[14],280),rep(symbols_vector[15],280),rep(symbols_vector[16],280)),dates=c(rep(as.Date(port_date_time),4)))
+
+
+p4=ggplot(dataFrame_plots_port_returns,mapping=aes(x=returns, fill=labels))+ 
+             geom_histogram(binwidth=bwidth,fill="darkgreen",colour="black")+theme(plot.margin=margin(0,0,0,0))+xlab("Returns")+facet_grid(labels~.)
+
+              
+chart_series_n4=ggplot(dataFrame_plots_port_returns,mapping=aes(x=dates,y=returns, fill=labels))+ geom_line()+theme(plot.margin=margin(0,0,0,0))+
+             xlab("Time")+facet_grid(labels~.)
+
+
+
+dataFrame_plots_port_returns=data.frame(returns=c(port_returns$USB.Close,port_returns$C.Close,port_returns$SBUX.Close,port_returns$VZ.Close),labels=c(rep(symbols_vector[17],280),rep(symbols_vector[18],280),rep(symbols_vector[19],280),rep(symbols_vector[20],280)),dates=c(rep(as.Date(port_date_time),4)))
+
+
+p5=ggplot(dataFrame_plots_port_returns,mapping=aes(x=returns, fill=labels))+ 
+             geom_histogram(binwidth=bwidth,fill="darkgreen",colour="black")+
+             xlab("Returns")+theme(plot.margin=margin(0,0,0,0))+facet_grid(labels~.)
+
+              
+chart_series_n5=ggplot(dataFrame_plots_port_returns,mapping=aes(x=dates,y=returns, fill=labels))+ geom_line()+theme(plot.margin=margin(0,0,0,0))+
+             xlab("Time")+facet_grid(labels~.)
+
+
+
+dataFrame_plots_port_returns=data.frame(returns=c(port_returns$TLT.Close,port_returns$USO.Close),labels=c(rep(symbols_vector[21],280),rep(symbols_vector[22],280)),dates=c(rep(as.Date(port_date_time),2)))
+
+
+p6=ggplot(dataFrame_plots_port_returns,mapping=aes(x=returns, fill=labels))+ 
+             geom_histogram(binwidth=bwidth,fill="darkgreen",colour="black")+
+             xlab("Returns")+theme(plot.margin=margin(0,0,0,0))+facet_grid(labels~.)
+
+              
+chart_series_n6=ggplot(dataFrame_plots_port_returns,mapping=aes(x=dates,y=returns, fill=labels))+ geom_line()+theme(plot.margin=margin(0,0,0,0))+
+             xlab("Time")+facet_grid(labels~.)
+
+```
+
+```{r,echo=FALSE}
+grid.arrange(p1,chart_series_n1)
+```
+
+Cómo se observa en el gráfico y en la tabla descriptiva Aon presenta un kurtosis de 15 con un sesgo negativo comparativamente mayoritamente en -0.78, lo que indica una cola izquierda de este activo más prolongada que los demás AMD,CSCO y FB por lo que dentro de esta comparación se puede decir que es el activo más riesgoso, aunque IQR no es tan elevado indicando que los datos no son tan dispersos en comparación a AMD.En este caso el activo de preferencia de inversión es Cisco. 
+```{r,echo=FALSE}
+knitr::kable(descr(port_returns[1:4]))
+```
+
+```{r,echo=FALSE}
+grid.arrange(p2,chart_series_n2)
+
+```
+En este caso cabe resaltar que AMT tiene un sesgo positivo con una kurtosis elevada de 6.23, la segunda más alta de este grupo de 4 activos. Se refuerza el sesgo positivo teniendo una mediana menor a su media y el activo AMT presenta también una alta dispersión en relación a sus activos comparativos.En este caso  entre los activos quien mejor comportamiento de riesgo tiene es PFE el cual presenta una kurtosis de 2.8 en comparación a XOM de 13.183, adicionalmente tiene IQR(Inter Quantile Range) de 0.02 indicando baja dispersión comparativamente los activos  AMT, MRK y XOM.
+
+```{r,echo=FALSE}
+knitr::kable(descr(port_returns[5:8]))
+```
+
+```{r,echo=FALSE}
+grid.arrange(p3,chart_series_n3)
+
+```
+Lam Research Corporation (LRCX) tiene un kurtosis elevada en este caso, comparativamente con los demás activos, duplicando los valores. Adicionalmente presenta el mayor sesgo negativo de aproximadamente -1.006 y también un importante IQR(Interquantile Rante) de 0.14, siendo que en promedio no es el mayor retorno, es probablemente un activo que no se seleccionaría para los portafolios debido a su alto y riesgo y bajo retorno promedio comparativamente; por otra parte, ORCL es un activo que tiene una kurtosis de 2.57 aproximadamente y tiene un IQR de 0.029 haciendolo menos volátil que problabemente se un buen activo para un activo de mínima varianza.
+
+```{r,echo=FALSE}
+knitr::kable(descr(port_returns[9:12]))
+```
+
+
+```{r,echo=FALSE}
+grid.arrange(p4,chart_series_n4)
+
+```
+Marsh and McLennan Companies, Inc. (MMC) es la compañía que tiene en este caso la mayor Kurtosis de 14.3, con el mayor sesgo negativo comparativamente en estos 4 activos -1.33, indicando una mayor logitu de la cola izquierda.
+
+```{r,echo=FALSE}
+knitr::kable(descr(port_returns[13:16]))
+```
+
+```{r,echo=FALSE}
+grid.arrange(p5,chart_series_n5)
+
+```
+Citigroup Inc. (C) es un activo es importante debido a que hace parte del sistma financiero EEUU, algo importante que se debe relatar debid a que presenta un Kurtosis de 13.2 y un sesgo de -2 con un IQR(Interquartile Range) de 0.04, lo que indica que puede ser un activo que indica no sólo un riesgo alto sino que puede destruir mayoritariamente valor en un portafolio dependiendo de los pesos invertidos.
+
+```{r,echo=FALSE}
+knitr::kable(descr(port_returns[17:20]))
+```
+
+```{r,echo=FALSE}
+grid.arrange(p6,chart_series_n6)
+
+```
+Us Oil, es dentro del grupo de activos una inversión sobre commodities con la finalidad de buscar descorrelación con el mercado. Adicionalmente bajo el análisis fundamental en loss meses que corresponden a este reporte se debe resalta que hubo sobre oferta de petróleo obligando al precio de los futuros a la baja ocasionando precios negativos de este comoditie por loq ue su Kurtosis puede estar afectada por este comportamiento(adicional a la Pandemia Covid-19).
+
+```{r,echo=FALSE}
+knitr::kable(descr(port_returns[21:22]))
+```
+```{r, include=FALSE}
+kurtosis_Port=port_returns%>%summarise_all(kurtosis)
+mean_returns_analyze=port_returns%>%summarise_all(mean)
+standard_deviation_port_returns=port_returns%>%summarise_all(sd)
+max(kurtosis_Port)
+max(mean_returns_analyze)
+max(standard_deviation_port_returns)
+
+```
+
+### Conclusiones Generales
+ 
+\begin{enumerate}
+\item En su gran mayoría los activos tiene un sesgo negativo, lo cual pueden estar destruyendo valor en terminos del binomio rentabilidad, riesgo.
+\item La mayor curtosis encontrada es 21.31 de USO, implicando mayor concentración alrededor de la media y que Us Oil un comportamiento  leptocurtico.
+\item la mayor desviación visto como una medida de volatilidad en terminos de distancia del comportamiento medio de cada activo, es 8,08% de AMD Advanced Micro Devices, Inc. 
+\item El retorno máximo obtenido dentro de los activos es del 1% de la compañía NVIDIA Corporation(NVDA).
+\end{enumerate}
+
+
+## Pruebas de Normalidad de  Shapiro
+
+Se realiza el test de Shapiro–Wilk, con la finalidad de determinar si la muestra o en este caso cada uno de los activos tiene un comportamiento normal. Este test tiene como hipotesis nula que la población de la muestra tiene un comportamiento normal, esto quiere decir:
+  $$H_0=X	\sim N(\mu,\sigma^2)$$
+  $$H_1=X	\nsim N(\mu,\sigma^2)$$
+
+Por esta razón siendo un test con un $\alpha=0.05$ si el p valor del test es menor que $\alpha$ se rechaza $H_o$.
+
+```{r, echo=FALSE}
+lshap_proof=lapply(port_returns, shapiro.test)
+lres <- sapply(lshap_proof, `[`, c("statistic","p.value"))
+valuesShapiro=t(lres)
+knitr::kable(valuesShapiro)
+```
+
+Como se Observa en la prueba el P valor de cada uno de los activos es menor a nuestro $\alpha$ definido por lo que en cado uno de los casos se rechaza $H_0$ y se comprueba que los activos no tienen un comportamiento normal.
+
+
+## Matriz de Covarianzas
+
+```{r, include=FALSE}
+#MAtriz de covarianzas
+covariance_matrix_pearson=cov(port_returns, y = NULL, use = "everything",
+                               method = c("pearson"))
+covariance_matrix_Spearman=cov(port_returns, y = NULL, use = "everything",
+                                method = c("spearman"))
+
+```
+
+La matriz de covarianzas tiena la propiedad que es una matriz simtetrica lo cual implica $A^t=A$.Adicionalmente tiene la siguiente propiedad:
+\[
+  D =
+  \begin{bmatrix}
+    var_{1} & & \\
+    & \ddots & \\
+    & & var_{r}
+  \end{bmatrix}
+\]
+
+
+Donde la $cov(x_1,x_1)=var(x_1)$, por lo que la diagonal de esta matriz son las varianzas de los activos.
+
+### Matriz de Covarianzas de Pearson
+
+Debido a la cantidad de activos la matriz se represantará visualmente y la matriz calculada se dejarán en el Anexo1:
+
+```{r, echo=FALSE}
+colnames(covariance_matrix_pearson)=symbols_vector
+rownames(covariance_matrix_pearson)=symbols_vector
+data_metl=melt(covariance_matrix_pearson)
+ggplot(data_metl,aes(X1,X2))+geom_tile(aes(fill=value)) +theme(axis.text.x = element_text(angle = 90, hjust = 1),plot.margin=margin(0,0,0,0))+ scale_fill_viridis(discrete=FALSE)
+#plot_ly(z=covariance_matrix_pearson , type="heatmap")
+#knitr::kable(covariance_matrix_pearson) 
+
+```
+
+Esta forma de visualización de mapa de calor en el caso de las $cov(activo_{x_1},activo_{x_2})$ lo más importante de ver es la diagonal que como ya deciamos son las varianzas de cada uno de los activos, esto debido a que como se afirmaba en el análisis descriptivo de los activos AMD, NVD y TLT tienen las varianzas más al tas por su colación se puede inferir que se encuentran entre 0.002 y 0.006 y que por esta razón pueden atribuir volatilidades más altas a estos activos y por lo tanto mayor riesgo en terminos en estos terminos.
+
+Sin embargo no es muy diciente la matriz, debido a que los activos nocumplen un comportamiento normal. Por esta razón el mapa de calor en su mayoría tiene covarianzas pequeñas o cercanas a 0.
+
+
+### Matriz de Covarianzas de Spearman
+
+La Matriz calculada se encuentra en el Anexo2
+
+```{r, echo=FALSE}
+colnames(covariance_matrix_Spearman)=symbols_vector
+rownames(covariance_matrix_Spearman)=symbols_vector
+data_metl=melt(covariance_matrix_Spearman)
+ggplot(data_metl,aes(X1,X2))+geom_tile(aes(fill=value)) +theme(axis.text.x = element_text(angle = 90, hjust = 1),plot.margin=margin(0,0,0,0))+ scale_fill_viridis(discrete=FALSE) 
+
+```
+La matriz de covarianzas de Spearman a diferencia de la Pearson es una ténica no parámetrica, por lo que no esta sujeta a una distribución, mientras que Pierson si(Normal). Por esta razón la coloración se modifica en el mapa de calor y nos muestra como las relaciones más fuertes entre los activos, como se observa en City y JPM lo cual tiene sentido siendo estas dos instituciones financieras.
+
+Interesante es la relación entre Marsh and McLennan Companies, Inc.(Ticker:MMC) y AON ya que son industrias que comparten un lazo fuerte como es Riesgos Financieros y Seguros.Pero estas relaciones es mejor examinarlas con más detenimiento en la matriz de correlaciones; por otra parte ya se puede observar una zona de X1 y X2 que pueden tener relaciones fuertes que son los activos comprendidos entre AMT y USO dado que son valores $>2500$.
+
+
+
+## Matriz de Correlaciones de Pearson
+
+
+```{r, include=FALSE}
+#Matriz de correlaciones para examinar relación entre los activos
+correlation_matrix_pearson=cor(port_returns, y = NULL, use = "everything",
+    method = c("pearson"))
+correlation_matrix_kendall=cor(port_returns, y = NULL, use = "everything",
+                       method = c("kendall"))
+correlation_matrix_Spearman=cor(port_returns, y = NULL, use = "everything",
+                                method = c("spearman"))
+```
+
+
+```{r, echo=FALSE}
+colnames(correlation_matrix_pearson)=symbols_vector
+rownames(correlation_matrix_pearson)=symbols_vector
+data_metl=melt(correlation_matrix_pearson)
+ggplot(data_metl,aes(X1,X2))+geom_tile(aes(fill=value)) +theme(axis.text.x = element_text(angle = 90, hjust = 1),plot.margin=margin(0,0,0,0))+ scale_fill_viridis(discrete=FALSE)
+```
+
+No se entrará en mucho detalle de este análisis debido a que para la construcción del portafolio utilizaremos la matriz de correlaciones de Spearman, dado que ya establecimos que la muestra de activos no cumple un comportamiento por lo que se ajusta mejor una técnica de análisis no parámetrica.
+
+## Matriz de Correlaciones de Spearman
+
+```{r, echo=FALSE}
+
+colnames(correlation_matrix_Spearman)=symbols_vector
+rownames(correlation_matrix_Spearman)=symbols_vector
+data_metl=melt(correlation_matrix_Spearman)
+ggplot(data_metl,aes(X1,X2))+geom_tile(aes(fill=value))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),plot.margin=margin(0,0,0,0))+
+  scale_fill_viridis(discrete=FALSE)
+```
+
+La principal motivación para la matriz de correlación de Spearman es determinar si existe una relación lineal entre las variables y que esta relación sea estadíticamente significativa, por lo que las relaciones de color más cercano al amarillo como lo son U.S. Bancorp (Ticker:USB) y Citigroup Inc. (Ticker:C) tienen una correlación mayor a 0.5 y prentan un p-valor menor a 0.05 siendo $H_0$ que no exista relación lineal.
+
+Exxon Mobil Corporation (Ticker:XOM) una de las empresas que tiene gran transversalidad en terminos de relación significativa con industrias bancarias y de tecnología, por lo que un buen parámetro a tomar en cuenta de inversión puede ser el comportamineto de la acción de Exxon Mobil.
+
+Importante ver en en esta matriz relaciones que no concuerdan en terminos de sectores como por ejemplo ADBE y MMC, AON los cuales pueden ser oportunidades si no son relación espúria.
+
+# Construcción de Portafolios
+
+
+## Construcción de Portafolio de Pesos Iguales
+
+```{r, echo=FALSE}
+library(kableExtra)
+color_use_plots=c("blue","green","orange","yellow")
+retorno_libr_riesgo=-0.00372987649712883
+equal_distr_weights=rep(1,length(symbols_vector))/length(symbols_vector)
+#Portafolio de Pesos iguales inicialización variables
+# se toma matriz de varianzas y cov de Spearman
+#calculo de las medias de los retornos
+mean_returns=meanCalculation(port_returns)
+#Calculo de Portafolio dist. uniforme
+port_equaly_Gen=getPortfolio(mean_returns,covariance_matrix_Spearman,equal_distr_weights)
+
+dataFrame_equ_port=data.frame(weights=port_equaly_Gen$weights,labels=symbols_vector)
+
+```
+
+```{r,echo=FALSE}
+ggplot(dataFrame_equ_port,aes(x=labels,y=weights))+
+theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_bar(stat="identity", fill=color_use_plots[1])
+```
+
+
+```{r, echo=FALSE}
+
+data_frame_temp_weights=data.frame(port_equaly_Gen$weights)
+sharpeRatio_calc=sharpeRatio_calculation(round(max(port_equaly_Gen$er),4),retorno_libr_riesgo,round(port_equaly_Gen$sd))
+treynor_calc=treynor_calculation(max(port_equaly_Gen$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio))
+jensen_alpha_port=Jensen_alpha_calculation(max(port_equaly_Gen$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio),mean_return_bench_mark)
+
+trecking_Error=trecking_error_calculation(port_equaly_Gen$er,mean_return_bench_mark)
+information_ratio=information_ratio_calculation(trecking_Error,jensen_alpha_port)
+
+chart_mean_return=data.frame(s_dev=round(port_equaly_Gen$sd,4), Sh_Rat=sharpeRatio_calc,Trey_Rat=treynor_calc,Js_alph=jensen_alpha_port,treck_Er=trecking_Error,infor_r=information_ratio)
+rownames(chart_mean_return)="Indicators"
+kableExtra::kable(chart_mean_return)%>%kable_styling(.,full_width=FALSE,row_label_position="l",latex_options = "striped")
+```
+
+
+Como se puede observar el portafolio de pesos iguales en este caso equivale a una relación de 1/22 es decir 4.5% para cada activo, las grandes diferencias en este portafolio esta en terminos de volatilidad dado que tiene un 44% de desviación. El Sharpe es muy pequeño para el valor de la volatilidad debido a que es solo el 0.0094% luego en un comienzo se observa un disparidad entre rentabilidad vs riesgo.
+
+Por otra parte, el alpha de $Jensen-alpha<0$, por lo que indica que no esta generando valor y no se esta comportando superior al Bench Marck de este reporte NASDAQ. Esta creación de valor se observa en el Trecking Error debido a que siendo $\sigma(E_p-E_b)$ me dice la distancia al retorno esperado del benchmarck, por lo que en este caso es muy pequeña y debido a que no genero alpha el ratio de información es negativo y muy grande.
+
+## Construcción de Portafolio de Mínima Varianza
+
+
+```{r, echo=FALSE}
+#Se utiliza la transpuesta de los retornos medios por como esta contruida las funciones
+port_min_variance_cortos=globalMin.portfolio(t(mean_returns),covariance_matrix_Spearman)
+#pmin_shorts=barplot(port_min_variance$weights,main ="Port_Min_Variance")
+#Sin Cortos
+port_min_variance=globalMin.portfolio(t(mean_returns),covariance_matrix_Spearman,F)
+#pmin=barplot(port_min_variance_cortos$weights,main="Por_Min_Variance_Shorts")
+
+dataFrame_equ_port_shorts=data.frame(weights=port_min_variance_cortos$weights,labels=symbols_vector)
+dataFrame_equ_port=data.frame(weights=port_min_variance$weights,labels=symbols_vector)
+```
+
+```{r,echo=FALSE}
+p=ggplot(dataFrame_equ_port,aes(x=labels,y=weights))+ggtitle("Port Min Variance")+
+theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_bar(stat="identity", fill=color_use_plots[2])
+p2=ggplot(dataFrame_equ_port_shorts,aes(x=labels,y=weights))+ggtitle("Port Min Variance Short")+
+theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_bar(stat="identity", fill=color_use_plots[2])
+
+grid.arrange(p,p2)
+```
+
+El portafolio de minima varianza sin cortos, presenta una desviación de 32% generando cerca del 0.01% semanal que ya  es superior al portafolio de pesos iguales. Adicionalmente esta mostrando un ratio de Treynor positivo que demuestra que por cada 1% de riesgo adicional que asumimos sobre la tasa libre de riesgo, estamos teniendo una rentabilidad positiva. 
+
+Por otra parte a pesar de tener alpha y Trecking Error negativos ya se muestra un ratio de información positivo lo cual quiere devir que por cada unidad de riesgo estoy añadiendo valor al portafolio no destruyendolo como lo mostraba el portafolio de pesos iguales.
+```{r, echo=FALSE}
+data_frame_temp_weights=data.frame(port_min_variance$weights)
+sharpeRatio_calc=sharpeRatio_calculation(max(port_min_variance$er),retorno_libr_riesgo,port_min_variance$sd)
+treynor_calc=treynor_calculation(max(port_min_variance$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio))
+jensen_alpha_port=Jensen_alpha_calculation(max(port_min_variance$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio),mean_return_bench_mark)
+
+trecking_Error=port_min_variance$er-mean_return_bench_mark
+information_ratio=information_ratio_calculation(trecking_Error,jensen_alpha_port)
+
+chart_mean_return=data.frame(ret=max(port_min_variance$er),s_dev=round(port_min_variance$sd,4), Sh_Rat=sharpeRatio_calc,Trey_Rat=treynor_calc,Js_alph=jensen_alpha_port,treck_Er=trecking_Error,infor_r=information_ratio)
+rownames(chart_mean_return)="Indicators"
+kableExtra::kable(chart_mean_return)%>%kable_styling(.,full_width=FALSE,row_label_position="l",latex_options = "striped")
+```
+
+
+### Cortos
+
+El portafolio de minima varianza con cortos me esta indicando que la mejor forma de obtener rentabilidad es ivirtiendo cerca de un 50% en corto en Citigroup Inc. (Ticker:C), el cual es un activo financiero y que como se veía en el análisis descriptivo tiene una volatilidad alta comparativamente.
+
+Es importante resaltar que aunque los ratios mejoraron en relación al portafolio de minima varianza sin cortos, no es una mejoría considerable teniendo en cuenta que el portafolio en corto esta expuesto en Citigroup Inc. (Ticker:C) asumiendo una desviación del 4% y una kurtosis de 13.28 dentro del portafolio.
+
+```{r,echo=FALSE}
+#cortos
+
+data_frame_temp_weights=data.frame(port_min_variance_cortos$weights)
+sharpeRatio_calc=sharpeRatio_calculation(max(port_min_variance_cortos$er),retorno_libr_riesgo,port_min_variance_cortos$sd)
+treynor_calc=treynor_calculation(max(port_min_variance_cortos$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio))
+jensen_alpha_port=Jensen_alpha_calculation(max(port_min_variance_cortos$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio),mean_return_bench_mark)
+
+trecking_Error=port_min_variance_cortos$er-mean_return_bench_mark
+information_ratio=information_ratio_calculation(trecking_Error,jensen_alpha_port)
+
+cchart_mean_return=data.frame(ret=max(port_min_variance_cortos$er),s_dev=port_min_variance_cortos$sd, Sh_Rat=sharpeRatio_calc,Trey_Rat=treynor_calc,Js_alph=jensen_alpha_port,treck_Er=trecking_Error,infor_r=information_ratio)
+rownames(chart_mean_return)="Indicators"
+kableExtra::kable(chart_mean_return)%>%kable_styling(.,full_width=FALSE,row_label_position="l",latex_options = "striped")
+```
+
+
+
+## Construcción de Portafolio Objetivo
+
+
+El portafolio Objetivo, como su nombre lo indica toma un retorno objetivo que para este caso es el benchmark y de acuerdo a la optimización de la volatilidad del protafolio se obtienen las proporciones a invertir en cada uno de los activos. Es por esta razón, que nuestros indicadores como el Trecking Error o Information Ratio no funcionan en este caso dado que estaríamos comparando un portafolio con una rentanbilidad igual a la del mercado u objetivo.
+
+```{r, echo=FALSE}
+#Portafolio objetivo con cortos
+
+portafolio_objetivo_cortos=efficient.portfolio(t(mean_returns),covariance_matrix_Spearman,mean_return_bench_mark)
+#Portafolio Objetivo sin cortos
+portafolio_objetivo=efficient.portfolio(t(mean_returns),covariance_matrix_Spearman,mean_return_bench_mark,F)
+
+dataFrame_equ_port_shorts=data.frame(weights=portafolio_objetivo_cortos$weights,labels=symbols_vector)
+dataFrame_equ_port=data.frame(weights=portafolio_objetivo$weights,labels=symbols_vector)
+```
+
+
+
+```{r,echo=FALSE}
+p=ggplot(dataFrame_equ_port,aes(x=labels,y=weights))+ggtitle("Port Obj")+
+theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_bar(stat="identity", fill=color_use_plots[3])
+p2=ggplot(dataFrame_equ_port_shorts,aes(x=labels,y=weights))+ggtitle("Port Obj Short")+
+theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_bar(stat="identity", fill=color_use_plots[3])
+
+grid.arrange(p,p2)
+```
+EL portafolio Objetivo para este caso es más conservador, dado que invierte en 15 de los 22 activos. Este Portafolio es importante resaltar que muestra generación de alpha, lo que indica que este portafolio siguiendo el benchmark esta generando valor adicional.
+
+EL ratio de Sharpe es de 0.01% lo cual infiero por cada unidad de volatilidad asumida se esta generando 0.01% adicional en comparación al activo libre de riesgo.
+
+
+```{r, echo=FALSE}
+
+data_frame_temp_weights=data.frame(portafolio_objetivo$weights)
+sharpeRatio_calc=sharpeRatio_calculation(max(portafolio_objetivo$er),retorno_libr_riesgo,portafolio_objetivo$sd)
+treynor_calc=treynor_calculation(max(portafolio_objetivo$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio))
+jensen_alpha_port=Jensen_alpha_calculation(max(portafolio_objetivo$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio),mean_return_bench_mark)
+
+trecking_Error=portafolio_objetivo$er-mean_return_bench_mark
+information_ratio=information_ratio_calculation(trecking_Error,jensen_alpha_port)
+
+chart_mean_return=data.frame(ret=max(portafolio_objetivo$er),s_dev=round(portafolio_objetivo$sd,4), Sh_Rat=sharpeRatio_calc,Trey_Rat=treynor_calc,Js_alph=jensen_alpha_port,treck_Er=trecking_Error,infor_r=information_ratio)
+rownames(chart_mean_return)="Indicators"
+kableExtra::kable(chart_mean_return)%>%kable_styling(.,full_width=FALSE,row_label_position="l",latex_options = "striped")
+```
+
+### Cortos
+
+
+El portafolio Objetivo en cortos ya mantiene una posición más conservadora en el activo Citigroup Inc. (Ticker:C), y nos indica que invirtamos mayoritariamente en USO y JPM, lo cual mejora la rentabilidad en 0.0001%  y disminuye mi volatilidad. Esto es importante puesto que los reultados implican que es menos riesgoso un portafolio obejtivo con cortos que uno sin cortos tomando la volatilidad como medida de riesgo.
+
+
+```{r,echo=FALSE}
+#cortos
+
+data_frame_temp_weights=data.frame(portafolio_objetivo_cortos$weights)
+sharpeRatio_calc=sharpeRatio_calculation(max(portafolio_objetivo_cortos$er),retorno_libr_riesgo,portafolio_objetivo_cortos$sd)
+treynor_calc=treynor_calculation(max(portafolio_objetivo_cortos$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio))
+jensen_alpha_port=Jensen_alpha_calculation(max(portafolio_objetivo_cortos$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio),mean_return_bench_mark)
+
+trecking_Error=portafolio_objetivo_cortos$er-mean_return_bench_mark
+information_ratio=information_ratio_calculation(trecking_Error,jensen_alpha_port)
+
+chart_mean_return=data.frame(ret=max(portafolio_objetivo_cortos$er),s_dev=round(portafolio_objetivo_cortos$sd,4), Sh_Rat=sharpeRatio_calc,Trey_Rat=treynor_calc,Js_alph=jensen_alpha_port,treck_Er=trecking_Error,infor_r=information_ratio)
+rownames(chart_mean_return)="Indicators"
+kableExtra::kable(chart_mean_return)%>%kable_styling(.,full_width=FALSE,row_label_position="l",latex_options = "striped")
+```
+
+## Construcción de Portafolio de Tangencia
+
+```{r, echo=FALSE}
+#Portafolio objetivo con cortos
+
+portafolio_tangencia_cortos=tangency.portfolio(t(mean_returns),covariance_matrix_Spearman,retorno_libr_riesgo)
+
+#Portafolio de Tangecia sin COrtos
+portafolio_tangencia=tangency.portfolio(t(mean_returns),covariance_matrix_Spearman,retorno_libr_riesgo,F)
+
+dataFrame_equ_port_shorts=data.frame(weights=portafolio_tangencia_cortos$weights,labels=symbols_vector)
+dataFrame_equ_port=data.frame(weights=portafolio_tangencia$weights,labels=symbols_vector)
+```
+
+```{r,echo=FALSE}
+p=ggplot(dataFrame_equ_port,aes(x=labels,y=weights))+ggtitle("Port tangencia long")+
+theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_bar(stat="identity", fill=color_use_plots[4])
+p2=ggplot(dataFrame_equ_port_shorts,aes(x=labels,y=weights))+ggtitle("Port tangencia Short")+
+theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_bar(stat="identity", fill=color_use_plots[4])
+
+grid.arrange(p,p2)
+```
+El portafolio de Tangencia sin cortos presenta un comportamiento que centraliza su inversión mayoritariamente en futuros de Us oil el cual tiene una volatilidad alta con una Kurtosis de 21, pero esta generando cerca de 0.6% semanal y 31,12% anual, la cual es una buena rentabilidad. Para complementar este análisis el ratio de información es superior a 1, lo que indica que por cada riesgo adicional que estoy asumiendo obtengo 0.4% en relación al benchmark.
+
+```{r, echo=FALSE}
+
+data_frame_temp_weights=data.frame(portafolio_tangencia$weights)
+sharpeRatio_calc=sharpeRatio_calculation(max(portafolio_tangencia$er),retorno_libr_riesgo,portafolio_tangencia$sd)
+treynor_calc=treynor_calculation(max(portafolio_tangencia$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio))
+jensen_alpha_port=Jensen_alpha_calculation(max(portafolio_tangencia$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio),mean_return_bench_mark)
+
+trecking_Error=portafolio_tangencia$er-mean_return_bench_mark
+information_ratio=information_ratio_calculation(trecking_Error,jensen_alpha_port)
+
+chart_mean_return=data.frame(ret=max(portafolio_tangencia$er),s_dev=round(portafolio_tangencia$sd,4), Sh_Rat=sharpeRatio_calc,Trey_Rat=treynor_calc,Js_alph=jensen_alpha_port,treck_Er=trecking_Error,infor_r=information_ratio)
+rownames(chart_mean_return)="Indicators"
+
+kableExtra::kable(chart_mean_return)%>%kable_styling(.,full_width=FALSE,row_label_position="l",latex_options = "striped")
+```
+
+### Cortos
+
+La posición del portafolio de tangencia con cortos ya es una posición nada conservadora con una volatilidad del 69%, pero que esta generando 0.02% por cada unidad de riesgo adicional asumido semanal, visto desde el punto de vista de Sharpe.
+
+Un ratio de información superior a 1, que quiere decir que mis posiciones estan generando rentabilidades por encima del mercado por cada unidad de riesgo adicional.
+
+```{r,echo=FALSE}
+#cortos
+
+data_frame_temp_weights=data.frame(portafolio_tangencia_cortos$weights)
+sharpeRatio_calc=sharpeRatio_calculation(max(portafolio_tangencia_cortos$er),retorno_libr_riesgo,portafolio_tangencia_cortos$sd)
+treynor_calc=treynor_calculation(max(portafolio_tangencia_cortos$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio))
+jensen_alpha_port=Jensen_alpha_calculation(max(portafolio_tangencia_cortos$er),retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio),mean_return_bench_mark)
+
+trecking_Error=portafolio_tangencia_cortos$er-mean_return_bench_mark
+information_ratio=information_ratio_calculation(trecking_Error,jensen_alpha_port)
+
+chart_mean_return=data.frame(ret=max(portafolio_tangencia_cortos$er),s_dev=round(portafolio_tangencia_cortos$sd,4), Sh_Rat=sharpeRatio_calc,Trey_Rat=treynor_calc,Js_alph=jensen_alpha_port,treck_Er=trecking_Error,infor_r=information_ratio)
+rownames(chart_mean_return)="Indicators"
+kableExtra::kable(chart_mean_return)%>%kable_styling(.,full_width=FALSE,row_label_position="l",latex_options = "striped")
+```
+
+
+## Construcción de Frontera Eficiente
+
+### Frontera Eficiente sin cortos.
+
+```{r, echo=FALSE}
+#Frontera Eficiente
+par(mfrow=c(1,2))
+frontera_eficiente=efficient.frontier(t(mean_returns),covariance_matrix_Spearman,shorts=F)
+plot_efficient_frontier(frontera_eficiente,"Frontera_Eficiente")
+frontera_eficiente_cortos=efficient.frontier(t(mean_returns),covariance_matrix_Spearman)
+plot_efficient_frontier(frontera_eficiente_cortos,"Frontera_Eficiente_Cortos")
+```
+
+Como se observa en la frontera eficiente sin cortos, que es la combinación de volatilidad y retorno de los portafolios que generar valor. 
+
+Los portafolios que se incluyen dentro de la construcción de esta frontera eficiente no incluye aquellos portafolios que tienen posiciones cortas, lo cual mide el riesgo en una escala diferente debido a que con posiciones cortas existe apalancamiento del portafolio. 
+
+En el caso de la  frontera eficiente  con cortos incluye las posiciones en cortos como se observa tiene valores negativos debido a una tasa libre de riesgo negativa, que esta incluida dentro de esta frontera. Por lo que los portafolios negativos dentro de la frontera a pesar de tener rentabilidad < 0 es eficiente en terminos de la relación con la volatilidad asumida.
+
+## Comparación de Portafolios Markowitz
+
+
+
+```{r,echo=FALSE}
+par(mfrow=c(1,2))
+plot.Markowitz(frontera_eficiente,plot.assets = T,"MarkoWitz_Plot",color_use_plots,port_min_variance,port_equaly_Gen,portafolio_tangencia,portafolio_objetivo,retorno_libr_riesgo)
+plot.Markowitz(frontera_eficiente_cortos,plot.assets = T,"MarkoWitz_Plot_cortos",color_use_plots,port_min_variance_cortos,port_equaly_Gen,portafolio_tangencia_cortos,portafolio_objetivo_cortos,retorno_libr_riesgo)
+```
+
+
+En el gráfico de Markowitz sin cortos se observan los puntos a los cuales corresponde cada uno de los portafolios, por ejemplo el azul corresponde al portafolio de mínima varianza, amarillo al portafolio objetivo, naranja al portafolio de tangencia y el verde  al portafolio de pesos iguales, que como se explicaba a la luz de sus ratios financieros es un portafolio que no se encuentra sobre la frontera y no genera valor para el inversionista en este caso.
+
+Para la frontera eficiente con cortos a nivel comparativo es un poco más prolongada debido a un activo libre de riesgo con rentabilidad negativa el cual se ve su punto de corte cercano a -0.005, y es importante notar que por 0.005 más de rentabilidad estoy asumiendo cerca de 29% más de volatilidad entre el portafolio de tangencia sin y con cortos. 
+
+En terminos de volatilidad las fluctuaciones son altas dado los activos escogidos para la formación del portafolio comparativamente estoy obteniendo un sharpe superior en 0.004% en relación sin cortos a cortos, lo que quiere decir que por cada unidad de riesgo del portafolio asumida estoyr generando mayor rentabilidad en relación al activo libre de riesgo no teniendo cortos, pero un menor alpha con relación al mercado.
+
+# Selección de Portafolio Eficiente
+
+
+```{r,echo=FALSE}
+port_selected_returns=sort(frontera_eficiente$er,decreasing = T)
+port_selected_standard=sort(frontera_eficiente$sd,decreasing = T)
+port_selected_weights=frontera_eficiente$weights[2,]
+# Numero aleatorio de Portafolio Eficiente
+#imprimiendo Portafolio Seleccionado
+
+create_single_barplot("Porfolio_Selected",port_selected_weights,symbols_vector,"purple")
+printing_results(paste("Retorno_Esperado :",port_selected_returns[2],"  ","Estandard Dev :",port_selected_standard[2] ,"weights : ", port_selected_weights),"Portafolio_Seleccionado_Sin_Cortos")
+```
+
+
+Es claro que para el portafolio sin cortos con un 30% toma una posición larga en United States Oil Fund, LP (USO) ya que apesar de ser un activo tan volatil representa una de las mejores relaciones de riesgo retorno del portafolio.
+
+\begin{itemize}
+\item El Sharpe del Portafolio es un 0,9% anual sobre el activo libre de riesgo, siendo que se tiene un 15% del portafolio en iShares 20+ Year Treasury Bond ETF (Ticker:TLT).
+\item Las desviación estandar del portafolio es elevada siendo del 76%, debido a la mayoría de la inversión en un fondo de futuros sobre commodities y debido a la volatilidad que estos han tenido a alo largo de los primeros seis meses del 2020.
+\item El exceso de rentabilidad obtenido sobre la tasa libre de riesgo por cada unidad de riesgo sistematico asumido, es del 2% lo cual es un buen indicador sobre el riesgo asumido adicional.
+\item el ratio de información es la medida que permite definir que tan efectiva ha sido la gestión del administrador del portafolio en comparación del mercado, por lo que en este caso es positivo y muestra como el administrador estaría generando valor por encima del benchmark(NASDAQ).
+\end{itemize}
+
+## Indicadores
+
+```{r,echo=FALSE}
+data_frame_temp_weights=data.frame(port_selected_weights)
+sharpeRatio_calc=sharpeRatio_calculation(port_selected_returns[2],retorno_libr_riesgo,port_selected_standard[2])
+treynor_calc=treynor_calculation(port_selected_returns[2],retorno_libr_riesgo,t(port_selected_weights),t(betas_portfolio))
+jensen_alpha_port=Jensen_alpha_calculation(port_selected_returns[2],retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio),mean_return_bench_mark)
+
+trecking_Error=portafolio_tangencia_cortos$er-mean_return_bench_mark
+information_ratio=information_ratio_calculation(trecking_Error,jensen_alpha_port)
+
+chart_mean_return=data.frame(ret=max(port_selected_returns[2]),s_dev=port_selected_standard[2], Sh_Rat=sharpeRatio_calc,Trey_Rat=treynor_calc,Js_alph=jensen_alpha_port,treck_Er=trecking_Error,infor_r=information_ratio)
+rownames(chart_mean_return)="Indicators"
+kableExtra::kable(chart_mean_return)%>%kable_styling(.,full_width=FALSE,row_label_position="l",latex_options = "striped")
+
+
+```
+
+
+
+
+
+
+
+## Selección de Portafolio Eficiente Con Cortos
+
+```{r,echo=FALSE}
+port_selected_returns1=sort(frontera_eficiente_cortos$er,decreasing = T)
+port_selected_standard1=sort(frontera_eficiente_cortos$sd,decreasing = T)
+port_selected_weights1=frontera_eficiente_cortos$weights[2,]
+# Numero aleatorio de Portafolio Eficiente
+#imprimiendo Portafolio Seleccionado
+
+create_single_barplot("Porfolio_Selected",port_selected_weights1,symbols_vector,"purple")
+printing_results(paste("Retorno_Esperado :",port_selected_returns1[2],"  ","Estandard Dev :",port_selected_standard1[2] ,"weights : ", port_selected_weights1),"Portafolio_Seleccionado_Sin_Cortos")
+```
+El portafolio con cortos nos permite observar la diferencia que existe entre sólo posiciones el largo, esto debido a que en largo teníamos una posición del 30% en United States Oil Fund, LP (USO), pero en este caso tengo una posición en corto superior al 40% en Citigroup Inc. (Ticker:C). 
+
+Este portafolio también tiene una posición larga importante en JPMorgan Chase and Co.(Ticker:JPM), esto en la optimización para la obtención de los portafolios eficientes, es debido a la compensación de volatilidad y una mejor obtención de alpha.
+
+\begin{itemize}
+\item El Sharpe del Portafolio es en este caso de 0.02% semanal que anualmente es una rentabilidad del 1,37%.
+\item Las desviación estandar del portafolio es elevada siendo 74% sin embargo por la compensación de volatilid entre posiciones largas y cortas genera una menor volatilidad que el portafolio eficiente sin cortos.
+\item el ratio de treynor me indica que por cada unidad de más de riesgo sistemático estoy obetiendo 2% de más de rentabilidad sobre el activo libre de riesgo.
+\item Calramente el ratio de información es superior a 1 siendo que esta generando un Alpha de Jensen mayor al comportamiento de mercado, lo que indica una gestión arriesgada pero que esta generando valor para el portafolio.
+\end{itemize}
+
+## Indicadores
+
+```{r,echo=FALSE}
+sharpeRatio_calc=sharpeRatio_calculation(port_selected_returns1[2],retorno_libr_riesgo,port_selected_standard1[2])
+treynor_calc=treynor_calculation(port_selected_returns1[2],retorno_libr_riesgo,t(port_selected_weights1),t(betas_portfolio))
+jensen_alpha_port=Jensen_alpha_calculation(port_selected_returns1[2],retorno_libr_riesgo,t(data_frame_temp_weights),t(betas_portfolio),mean_return_bench_mark)
+
+trecking_Error=portafolio_tangencia_cortos$er-mean_return_bench_mark
+information_ratio=information_ratio_calculation(trecking_Error,jensen_alpha_port)
+
+chart_mean_return=data.frame(ret=max(port_selected_returns1[2]),s_dev=port_selected_standard1[2], Sh_Rat=sharpeRatio_calc,Trey_Rat=treynor_calc,Js_alph=jensen_alpha_port,treck_Er=trecking_Error,infor_r=information_ratio)
+rownames(chart_mean_return)="Indicators"
+kableExtra::kable(chart_mean_return)%>%kable_styling(.,full_width=FALSE,row_label_position="l",latex_options = "striped")
+
+
+```
+
+
+# Calculo de VAR
+
+```{r,echo=FALSE}
+#desviaciones Anuales
+sd_returns= volatilities_calculationa_assets(port_returns)*sqrt(52)
+#Método Genera Volatilidades Hasta del 75% de confianza
+volatilidades_assets_port=volatilities_generation(sd_returns)
+percentage_change_volatilidades=normal_var_generation(volatilidades_assets_port,port_selected_weights)
+ValueAtVar=percentage_change_volatilidades*nominal_investment
+value_summarise_vaR_none_diversified=ValueAtVar%>%summarise_all(sum)
+
+value_Var_div_none=(value_summarise_vaR_none_diversified/nominal_investment)
+
+
+```
+
+```{r, echo=FALSE}
+
+source("functions_port_mg.R")
+diversified_cvar=cvar_corr_diversified(port_returns,ValueAtVar,port_selected_weights ,ETL)
+diversified_corr_VAR=var_corr_Nonediversified(ValueAtVar,nominal_investment,correlation_matrix_Spearman)
+
+data_frame_plot_var_none_dv=data.frame(values_var=c(t(value_Var_div_none)),labels=c(rownames(t(value_Var_div_none))))
+data_frame_plot_var_dv=data.frame(values_var=c(t(diversified_corr_VAR)),labels=c(rownames(t(diversified_corr_VAR))))
+data_frame_plot_cvar_dv=data.frame(values_var=c(t(diversified_cvar)),labels=c(rownames(t(diversified_cvar))))
+
+var_port_folio_anualizado=var.portfolio(port_returns,port_selected_weights)*sqrt(52)
+
+dataFrame_var_port=data.frame(Var_Port_Anual=var_port_folio_anualizado,Face_Value=nominal_investment,valor_Var=var_port_folio_anualizado*nominal_investment)
+
+p_var_1=ggplot(data_frame_plot_var_none_dv,mapping=aes(x=labels,y= values_var))+ 
+             geom_bar(stat ="identity",fill="darkgreen",colour="black")+theme(plot.margin=margin(0,0,0,0))+xlab("VAR No DIversificado Gaussiano")
+
+p_var_2p_var_2=ggplot(data_frame_plot_var_dv,mapping=aes(x=labels,y= values_var))+ 
+             geom_bar(stat ="identity",fill="darkblue",colour="black")+theme(plot.margin=margin(0,0,0,0))+xlab("VAR Diversificado Gaussiano")
+
+p_var_3p_var_3=ggplot(data_frame_plot_cvar_dv,mapping=aes(x=labels,y= values_var))+ 
+             geom_bar(stat ="identity",fill="darkblue",colour="black")+theme(plot.margin=margin(0,0,0,0))+xlab("CVAR")
+
+grid.arrange(p_var_1,p_var_2p_var_2,p_var_3p_var_3,nrow=3)
+
+kable(dataFrame_var_port)
+```
+El var resultante al 9% del portafolio es 26.774 Dolares de un una inversión inicial de 10.000.000 USD, lo cual en comparación al CVAR ponderado por los pesos definidos para este portafolio disminuye en en el 99% debido a que los activos con mayor var a estos niveles son mayores y son mayoritarimente compensados con aquellos tienen CVar porsitivo. 
+
+## Calculo de VAR con Cortos
+
+```{r,echo=FALSE}
+#desviaciones Anuales
+sd_returns= volatilities_calculationa_assets(port_returns)*sqrt(52)
+#Método Genera Volatilidades Hasta del 75% de confianza
+volatilidades_assets_port=volatilities_generation(sd_returns)
+percentage_change_volatilidades=normal_var_generation(volatilidades_assets_port,port_selected_weights1)
+ValueAtVar=percentage_change_volatilidades*nominal_investment
+value_summarise_vaR_none_diversified=ValueAtVar%>%summarise_all(sum)
+
+value_Var_div_none=(value_summarise_vaR_none_diversified/nominal_investment)
+
+
+```
+
+```{r, echo=FALSE}
+
+source("functions_port_mg.R")
+diversified_cvar=cvar_corr_diversified(port_returns,ValueAtVar,port_selected_weights1 ,ETL)
+diversified_corr_VAR=var_corr_Nonediversified(ValueAtVar,nominal_investment,correlation_matrix_Spearman)
+
+data_frame_plot_var_none_dv=data.frame(values_var=c(t(value_Var_div_none)),labels=c(rownames(t(value_Var_div_none))))
+data_frame_plot_var_dv=data.frame(values_var=c(t(diversified_corr_VAR)),labels=c(rownames(t(diversified_corr_VAR))))
+data_frame_plot_cvar_dv=data.frame(values_var=c(t(diversified_cvar)),labels=c(rownames(t(diversified_cvar))))
+
+var_port_folio_anualizado=var.portfolio(port_returns,port_selected_weights1)*sqrt(52)
+
+dataFrame_var_port=data.frame(Var_Port_Anual=var_port_folio_anualizado,Face_Value=nominal_investment,valor_Var=var_port_folio_anualizado*nominal_investment)
+
+p_var_1=ggplot(data_frame_plot_var_none_dv,mapping=aes(x=labels,y= values_var))+ 
+             geom_bar(stat ="identity",fill="darkgreen",colour="black")+theme(plot.margin=margin(0,0,0,0))+xlab("VAR No DIversificado Gaussiano")
+
+p_var_2p_var_2=ggplot(data_frame_plot_var_dv,mapping=aes(x=labels,y= values_var))+ 
+             geom_bar(stat ="identity",fill="darkblue",colour="black")+theme(plot.margin=margin(0,0,0,0))+xlab("VAR Diversificado Gaussiano")
+
+p_var_3p_var_3=ggplot(data_frame_plot_cvar_dv,mapping=aes(x=labels,y= values_var))+ 
+             geom_bar(stat ="identity",fill="darkblue",colour="black")+theme(plot.margin=margin(0,0,0,0))+xlab("CVAR")
+
+grid.arrange(p_var_1,p_var_2p_var_2,p_var_3p_var_3,nrow=3)
+
+kable(dataFrame_var_port)
+```
+El Var en este caso al 95% de confianza es de 231.937, siendo un crecimiento considerable en comparación al portafolio sin cortos, adicionalmente el CVAR debido a los pesos de la cartera negativos tiene una compensación entre el 95% y el 99% de aquellos activos con posición en corto, pero realizando el análisis a 99% en el 1% de los casos estaría perdiendo cerca del 10% de la inversión en promedio.
+
+
+
+
+
+# Bibliografía
+
+
+Aragonés, J., & Mascareñas, J. (1994). La eficiencia y el equilibrio en los mercados de capital. Análisis Financiero(64), 76-89.
+
+Bartholdy, J., & Peare, P. (1 de 1 de 2005). Estimation of expected return: CAPM vs. Fama and French. International Review of Financial Analysis, 14(4), 407-427.
+
+Dyhrberg, A. (2016). Bitcoin, gold and the dollar - A GARCH volatility analysis. Finance Research Letters, 16.
+
+Facebook, Inc. (FB) Stock Price, Quote, History & News - Yahoo Finance. (s.f.). Obtenido de https://finance.yahoo.com/quote/FB?p=FB&.tsrc=fin-srch
+
+Fama, E., Booth, D., Bradley, M., Brennan, M., Buser, S., Campbell, J., . . . Warner, J. (1991). Efficient Capital Markets: II The comments of Fischer Black. the Journal of Finance *, XLVI(5), 1575-1617.
+
+Yahoo, I. (s.f.). Yahoo Finance - Stock Market Live, Quotes, Business & Finance News. Obtenido de https://finance.yahoo.com/
+
+ 
+
